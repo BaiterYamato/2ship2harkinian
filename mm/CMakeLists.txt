@@ -68,6 +68,10 @@ if (NOT TARGET libultraship)
     add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/../libultraship ${CMAKE_BINARY_DIR}/libultraship)
 endif()
 
+if (NOT TARGET shiplua)
+    add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/../extern/ship-lua ${CMAKE_BINARY_DIR}/ship-lua)
+endif()
+
 if (NOT TARGET ZAPDLib)
     add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/../ZAPDTR/ZAPD ${CMAKE_BINARY_DIR}/ZAPD)
 endif()
@@ -628,6 +632,7 @@ if(CMAKE_SYSTEM_NAME MATCHES "NintendoSwitch|CafeOS")
 else()
     target_link_libraries(${PROJECT_NAME} PRIVATE "${ADDITIONAL_LIBRARY_DEPENDENCIES}")
 endif()
+target_link_libraries(${PROJECT_NAME} PRIVATE shiplua)
 
 if(CMAKE_SYSTEM_NAME MATCHES "NintendoSwitch")
 
