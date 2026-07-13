@@ -64,6 +64,7 @@ CrowdControl* CrowdControl::Instance;
 #include "2s2h/BenGui/Notification.h"
 #include "2s2h/ShipUtils.h"
 #include "2s2h/ShipInit.hpp"
+#include "2s2h/ShipLuaBootstrap.h"
 #include "2s2h/PresetManager/PresetManager.h"
 #include "2s2h/config/ConfigUpdaters.h"
 
@@ -958,6 +959,7 @@ extern "C" void InitOTR(int argc, char* argv[]) {
     Ship::Context::GetInstance()->GetConsoleVariables()->Save();
 
     GameInteractor::Instance = new GameInteractor();
+    ShipLuaHost::Initialize();
     AudioCollection::Instance = new AudioCollection();
     LoadGuiTextures();
     BenGui::SetupGuiElements();
