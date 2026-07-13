@@ -1154,6 +1154,13 @@ extern "C" void Graph_StartFrame() {
             break;
         }
     }
+
+    // ShipLua: configurable hotkey (default F) asking loaded mods to spawn a dog.
+    // Rebind via CVar gShipLua.DogHotkey.Scancode; disable via .Enabled.
+    if (dwScancode > 0 && CVarGetInteger("gShipLua.DogHotkey.Enabled", 1) != 0 &&
+        dwScancode == CVarGetInteger("gShipLua.DogHotkey.Scancode", KbScancode::LUS_KB_F)) {
+        ShipLuaHost::DispatchHotkey("spawn_dog");
+    }
 #endif
 }
 
