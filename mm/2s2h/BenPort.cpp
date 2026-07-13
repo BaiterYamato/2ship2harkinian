@@ -1010,6 +1010,7 @@ extern "C" void SaveManager_ThreadPoolWait() {
 
 extern "C" void DeinitOTR() {
     SaveManager_ThreadPoolWait();
+    ShipLuaHost::Shutdown();
     OTRAudio_Exit();
 #ifdef ENABLE_CROWD_CONTROL
     CrowdControl::Instance->Disable();
