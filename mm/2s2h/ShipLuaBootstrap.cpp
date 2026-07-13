@@ -42,6 +42,15 @@ void Initialize() {
     SPDLOG_INFO("ShipLua inicializado");
 }
 
+void Shutdown() {
+    if (gModHost == nullptr) {
+        return;
+    }
+
+    gModHost.reset();
+    SPDLOG_INFO("ShipLua finalizado");
+}
+
 ShipLua::ModHost* GetModHost() {
     return gModHost.get();
 }
