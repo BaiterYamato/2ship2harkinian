@@ -1,4 +1,5 @@
 #include "ShipLuaBootstrap.h"
+#include "MmHotkeyRegistry.h"
 
 #include <filesystem>
 #include <memory>
@@ -27,6 +28,7 @@ namespace ShipLuaHost {
 namespace {
 
 std::unique_ptr<ShipLua::ModHost> gModHost;
+std::shared_ptr<MmHotkeyRegistry> gHotkeys;
 
 ShipLua::Logger CreateLogger() {
     return ShipLua::Logger([](ShipLua::LogLevel level, const std::string& modId, const std::string& message) {
@@ -56,6 +58,7 @@ ShipLua::LuaApiHostContext CreateHostContext() {
     ShipLua::LuaApiHostContext context;
     context.gameId = "mm";
     context.hostVersion = GetHostVersion();
+    context.hotkeys = gHotkeys;
     return context;
 }
 
@@ -180,6 +183,7 @@ void Initialize() {
         return;
     }
 
+    gHotkeys = std::make_shared<MmHotkeyRegistry>();
     ShipLua::LuaApiHostContext context = CreateHostContext();
     SPDLOG_INFO("ShipLua inicializando para {} {} (commit {})", context.gameId, context.hostVersion, gGitCommitHash);
     gModHost = std::make_unique<ShipLua::ModHost>(context, CreateLogger());
@@ -193,6 +197,7 @@ void Shutdown() {
     }
 
     gModHost.reset();
+    gHotkeys.reset();
     SPDLOG_INFO("ShipLua finalizado");
 }
 
@@ -200,22 +205,8 @@ ShipLua::ModHost* GetModHost() {
     return gModHost.get();
 }
 
-void DispatchHotkey(const std::string& action) {
-    if (gModHost == nullptr) {
-        return;
-    }
-    ShipLua::EventPayload payload{
-        { "action", action },
-        { "key", std::string("F") },
-    };
-    auto result = gModHost->DispatchEvent("input.hotkey", payload);
-    if (!result.isOk()) {
-        SPDLOG_ERROR("ShipLua n\xC3\xA3o conseguiu publicar input.hotkey: {}", result.message);
-        return;
-    }
-    for (const ShipLua::CallbackFailure& failure : result.value->failures) {
-        SPDLOG_ERROR("ShipLua [{}] falhou em input.hotkey: {}", failure.modId, failure.message);
-    }
+MmHotkeyRegistry* Hotkeys() {
+    return gHotkeys.get();
 }
 
 } // namespace ShipLuaHost

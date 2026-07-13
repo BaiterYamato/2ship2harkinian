@@ -8,12 +8,14 @@ class ModHost;
 
 namespace ShipLuaHost {
 
+class MmHotkeyRegistry;
+
 void Initialize();
 void Shutdown();
 ShipLua::ModHost* GetModHost();
 
-// Dispatches an "input.hotkey" event to loaded mods. Called from the port's
-// keyboard handler when the configured hotkey is pressed.
-void DispatchHotkey(const std::string& action);
+// Owned hotkey registry (created in Initialize, destroyed in Shutdown).
+// May be nullptr before Initialize or after Shutdown.
+MmHotkeyRegistry* Hotkeys();
 
 } // namespace ShipLuaHost

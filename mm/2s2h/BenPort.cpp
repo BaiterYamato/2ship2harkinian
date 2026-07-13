@@ -65,6 +65,7 @@ CrowdControl* CrowdControl::Instance;
 #include "2s2h/ShipUtils.h"
 #include "2s2h/ShipInit.hpp"
 #include "2s2h/ShipLuaBootstrap.h"
+#include "2s2h/MmHotkeyRegistry.h"
 #include "2s2h/PresetManager/PresetManager.h"
 #include "2s2h/config/ConfigUpdaters.h"
 
@@ -1155,11 +1156,8 @@ extern "C" void Graph_StartFrame() {
         }
     }
 
-    // ShipLua: configurable hotkey (default F) asking loaded mods to spawn a dog.
-    // Rebind via CVar gShipLua.DogHotkey.Scancode; disable via .Enabled.
-    if (dwScancode > 0 && CVarGetInteger("gShipLua.DogHotkey.Enabled", 1) != 0 &&
-        dwScancode == CVarGetInteger("gShipLua.DogHotkey.Scancode", KbScancode::LUS_KB_F)) {
-        ShipLuaHost::DispatchHotkey("spawn_dog");
+    if (ShipLuaHost::MmHotkeyRegistry* hotkeys = ShipLuaHost::Hotkeys(); hotkeys != nullptr) {
+        hotkeys->DispatchScancode(dwScancode);
     }
 #endif
 }

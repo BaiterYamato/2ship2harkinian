@@ -99,7 +99,12 @@ list(REMOVE_ITEM Header_Files__include ${CMAKE_CURRENT_SOURCE_DIR}/include/ultra
 source_group("include" FILES ${Header_Files__include})
 # }}}
 
-file(GLOB_RECURSE ship__ RELATIVE ${CMAKE_CURRENT_SOURCE_DIR} "2s2h/*.c" "2s2h/*.cpp" "2s2h/*.h" "2s2h/*.hpp")
+file(GLOB_RECURSE ship__ CONFIGURE_DEPENDS RELATIVE ${CMAKE_CURRENT_SOURCE_DIR}
+    "2s2h/*.c"
+    "2s2h/*.cpp"
+    "2s2h/*.h"
+    "2s2h/*.hpp"
+)
 # Create source groups that match the real file directory paths
 foreach(source IN LISTS ship__)
     get_filename_component(source_path "${source}" PATH)
