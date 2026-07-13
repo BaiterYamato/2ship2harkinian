@@ -1,5 +1,6 @@
 #include "ShipLuaBootstrap.h"
 #include "MmHotkeyRegistry.h"
+#include "MmWorldAdapter.h"
 
 #include <filesystem>
 #include <memory>
@@ -29,6 +30,7 @@ namespace {
 
 std::unique_ptr<ShipLua::ModHost> gModHost;
 std::shared_ptr<MmHotkeyRegistry> gHotkeys;
+std::shared_ptr<MmWorldAdapter> gWorldAdapter;
 
 ShipLua::Logger CreateLogger() {
     return ShipLua::Logger([](ShipLua::LogLevel level, const std::string& modId, const std::string& message) {
@@ -223,6 +225,13 @@ void Initialize() {
     }
 
     gHotkeys = std::make_shared<MmHotkeyRegistry>();
+    auto catalog = ShipLua::PortableItemCatalog::CreateDefault();
+    if (!catalog.isOk()) {
+        SPDLOG_ERROR("ShipLua não conseguiu criar o catálogo portátil MM: {}", catalog.message);
+        gHotkeys.reset();
+        return;
+    }
+    gWorldAdapter = std::make_shared<MmWorldAdapter>(std::move(*catalog.value));
     ShipLua::LuaApiHostContext context = CreateHostContext();
     SPDLOG_INFO("ShipLua inicializando para {} {} (commit {})", context.gameId, context.hostVersion, gGitCommitHash);
     gModHost = std::make_unique<ShipLua::ModHost>(context, CreateLogger());
@@ -236,6 +245,7 @@ void Shutdown() {
     }
 
     gModHost.reset();
+    gWorldAdapter.reset();
     gHotkeys.reset();
     SPDLOG_INFO("ShipLua finalizado");
 }
@@ -246,6 +256,10 @@ ShipLua::ModHost* GetModHost() {
 
 MmHotkeyRegistry* Hotkeys() {
     return gHotkeys.get();
+}
+
+MmWorldAdapter* WorldAdapter() {
+    return gWorldAdapter.get();
 }
 
 } // namespace ShipLuaHost
