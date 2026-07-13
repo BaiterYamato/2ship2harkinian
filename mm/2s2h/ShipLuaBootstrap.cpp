@@ -61,8 +61,7 @@ void LoadModsAndDispatchReady(const ShipLua::LuaApiHostContext& context) {
     std::error_code error;
     std::filesystem::create_directories(modsRoot, error);
     if (error) {
-        SPDLOG_ERROR("ShipLua n\xC3\xA3o conseguiu criar a pasta de mods '{}': {}", modsRoot.string(),
-                     error.message());
+        SPDLOG_ERROR("ShipLua n\xC3\xA3o conseguiu criar a pasta de mods '{}': {}", modsRoot.string(), error.message());
         return;
     }
 
