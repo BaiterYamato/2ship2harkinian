@@ -58,8 +58,31 @@ ShipLua::LuaApiHostContext CreateHostContext() {
     ShipLua::LuaApiHostContext context;
     context.gameId = "mm";
     context.hostVersion = GetHostVersion();
+    context.capabilities = { "mm.player.jump" };
     context.hotkeys = gHotkeys;
     return context;
+}
+
+// ship.mm.player.jump(): applies a host-controlled vertical impulse only when
+// the player is alive and standing on the ground. No internal pointer or force
+// value crosses the Lua boundary.
+int LuaPlayerJump(lua_State* L) {
+    PlayState* play = gPlayState;
+    if (play == nullptr) {
+        lua_pushboolean(L, 0);
+        return 1;
+    }
+
+    Player* player = GET_PLAYER(play);
+    if (player == nullptr || (player->stateFlags1 & PLAYER_STATE1_DEAD) != 0 ||
+        (player->actor.bgCheckFlags & BGCHECKFLAG_GROUND) == 0) {
+        lua_pushboolean(L, 0);
+        return 1;
+    }
+
+    player->actor.velocity.y = 6.34375f;
+    lua_pushboolean(L, 1);
+    return 1;
 }
 
 // ship.mm.spawn_dog(): spawns the Clock Town dog (En_Dg) at the player's
@@ -115,10 +138,26 @@ void InstallMmApi(lua_State* L) {
         lua_pop(L, 1);
         return;
     }
-    lua_newtable(L);
+    const int shipTable = lua_gettop(L);
+    lua_getfield(L, shipTable, "mm");
+    if (!lua_istable(L, -1)) {
+        lua_pop(L, 1);
+        lua_newtable(L);
+    }
+    const int mmTable = lua_gettop(L);
     lua_pushcfunction(L, LuaSpawnDog);
     lua_setfield(L, -2, "spawn_dog");
-    lua_setfield(L, -2, "mm");
+
+    lua_getfield(L, mmTable, "player");
+    if (!lua_istable(L, -1)) {
+        lua_pop(L, 1);
+        lua_newtable(L);
+    }
+    lua_pushcfunction(L, LuaPlayerJump);
+    lua_setfield(L, -2, "jump");
+    lua_setfield(L, mmTable, "player");
+
+    lua_setfield(L, shipTable, "mm");
     lua_pop(L, 1);
 }
 
