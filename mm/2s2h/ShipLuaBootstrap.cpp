@@ -1,10 +1,14 @@
 #include "ShipLuaBootstrap.h"
 
 #include <memory>
+#include <string>
+#include <utility>
 
 #include <spdlog/spdlog.h>
 
 #include <shiplua/host/ModHost.h>
+
+#include "build.h"
 
 namespace ShipLuaHost {
 namespace {
@@ -30,6 +34,18 @@ ShipLua::Logger CreateLogger() {
     });
 }
 
+std::string GetHostVersion() {
+    return std::to_string(gBuildVersionMajor) + "." + std::to_string(gBuildVersionMinor) + "." +
+           std::to_string(gBuildVersionPatch);
+}
+
+ShipLua::LuaApiHostContext CreateHostContext() {
+    ShipLua::LuaApiHostContext context;
+    context.gameId = "mm";
+    context.hostVersion = GetHostVersion();
+    return context;
+}
+
 } // namespace
 
 void Initialize() {
@@ -38,7 +54,9 @@ void Initialize() {
         return;
     }
 
-    gModHost = std::make_unique<ShipLua::ModHost>(CreateLogger());
+    ShipLua::LuaApiHostContext context = CreateHostContext();
+    SPDLOG_INFO("ShipLua inicializando para {} {} (commit {})", context.gameId, context.hostVersion, gGitCommitHash);
+    gModHost = std::make_unique<ShipLua::ModHost>(std::move(context), CreateLogger());
     SPDLOG_INFO("ShipLua inicializado");
 }
 
