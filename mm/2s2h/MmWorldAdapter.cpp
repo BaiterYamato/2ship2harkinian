@@ -123,7 +123,7 @@ void AddSword(PortablePlayerState& state, std::uint8_t sword) {
 }
 
 std::optional<std::uint16_t> ResolveEntrance(const std::string& destinationId) {
-    if (destinationId == "mm.clock_town") {
+    if (destinationId == "mm.clock_town" || destinationId == "mm.clock_tower.entrance") {
         return ENTRANCE(SOUTH_CLOCK_TOWN, 0);
     }
     if (destinationId == "mm.woodfall") {

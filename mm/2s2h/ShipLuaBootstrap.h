@@ -19,5 +19,6 @@ ShipLua::ModHost* GetModHost();
 // May be nullptr before Initialize or after Shutdown.
 MmHotkeyRegistry* Hotkeys();
 MmWorldAdapter* WorldAdapter();
+void OpenLogWindow();
 
 } // namespace ShipLuaHost
