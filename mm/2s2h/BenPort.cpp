@@ -1072,6 +1072,18 @@ extern "C" void Graph_StartFrame() {
     int32_t dwScancode = OTRGlobals::Instance->context->GetWindow()->GetLastScancode();
     OTRGlobals::Instance->context->GetWindow()->SetLastScancode(-1);
 
+#ifdef _WIN32
+    static bool logChordWasDown = false;
+    const SHORT f3State = GetAsyncKeyState(VK_F3);
+    const SHORT shiftState = GetAsyncKeyState(VK_SHIFT);
+    const bool logChordIsDown = (f3State & 0x8000) != 0 && (shiftState & 0x8000) != 0;
+    const bool logChordPressed = logChordIsDown || ((f3State & 1) != 0 && (shiftState & 0x8001) != 0);
+    if (logChordPressed && !logChordWasDown) {
+        ShipLuaHost::OpenLogWindow();
+    }
+    logChordWasDown = logChordIsDown;
+#endif
+
     switch (dwScancode) {
 #if 0
         case KbScancode::LUS_KB_F5: {
