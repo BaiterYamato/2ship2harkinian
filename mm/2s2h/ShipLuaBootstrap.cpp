@@ -117,6 +117,17 @@ bool BothGamesAvailable() {
     return games.find("oot") != std::string::npos && games.find("mm") != std::string::npos;
 }
 
+[[noreturn]] void ExitForWorldSwitch() {
+#ifdef _WIN32
+    // RequestWorldTravel runs inside a Lua callback. std::exit executes CRT
+    // teardown while that callback stack is still active and can trigger the
+    // Windows fail-fast code 0xC0000409 before the launcher receives code 73.
+    ::ExitProcess(static_cast<UINT>(kSwitchWorldExitCode));
+#else
+    std::_Exit(kSwitchWorldExitCode);
+#endif
+}
+
 ShipLua::Result<void> RequestWorldTravel(const ShipLua::WorldDestination& destination) {
     const auto config = GetBridgeConfig();
     if (!config.has_value() || !BothGamesAvailable() || destination.world != ShipLua::WorldId::Oot ||
@@ -147,7 +158,7 @@ ShipLua::Result<void> RequestWorldTravel(const ShipLua::WorldDestination& destin
     }
     SPDLOG_INFO("Link-Span exportou o estado MM e solicitou troca para OoT ({})", destination.id);
     spdlog::apply_all([](const std::shared_ptr<spdlog::logger>& logger) { logger->flush(); });
-    std::exit(kSwitchWorldExitCode);
+    ExitForWorldSwitch();
 }
 
 void TryConsumeWorldHandoff() {
