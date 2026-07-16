@@ -3,6 +3,7 @@
 #include "MmWorldAdapter.h"
 
 #include <filesystem>
+#include <cstdlib>
 #include <memory>
 #include <string>
 
@@ -60,8 +61,17 @@ ShipLua::LuaApiHostContext CreateHostContext() {
     ShipLua::LuaApiHostContext context;
     context.gameId = "mm";
     context.hostVersion = GetHostVersion();
-    context.capabilities = { "mm.player.jump" };
+    context.capabilities = { "mm.player.jump", "mm.spawn_dog" };
     context.hotkeys = gHotkeys;
+    if (const char* available = std::getenv("LINKSPAN_AVAILABLE_GAMES"); available != nullptr) {
+        const std::string games(available);
+        if (games.find("oot") != std::string::npos) {
+            context.availableGames.push_back("oot");
+        }
+        if (games.find("mm") != std::string::npos) {
+            context.availableGames.push_back("mm");
+        }
+    }
     return context;
 }
 
