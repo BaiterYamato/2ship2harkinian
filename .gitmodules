@@ -7,3 +7,6 @@
 [submodule "ZAPDTR"]
 	path = ZAPDTR
 	url = https://github.com/HarbourMasters/ZAPDTR.git
+[submodule "extern/ship-lua"]
+	path = extern/ship-lua
+	url = https://github.com/BaiterYamato/ship-lua.git
