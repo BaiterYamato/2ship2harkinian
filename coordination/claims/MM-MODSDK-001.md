@@ -1,10 +1,12 @@
 # MM-MODSDK-001
 
-- Status: claimed
+- Status: review
 - Agent: Codex
 - Platform: Windows 11 / MSVC 2022 / CMake
 - Repository: BaiterYamato/2ship2harkinian
 - Branch: agent/MM-MODSDK-001-actor-adapter
+- Commit: 1d2eb2c
+- Pull request: https://github.com/BaiterYamato/2ship2harkinian/pull/12
 - Started: 2026-07-18T17:23:37-03:00
 - Depends on: MODSDK-005, MM-LINK-003
 - Files:

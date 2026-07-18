@@ -4,6 +4,9 @@
 
 review
 
+- Commit: `1d2eb2c`
+- Pull request: https://github.com/BaiterYamato/2ship2harkinian/pull/12
+
 ## Resultado
 
 - `MmActorProvider` implementa o contrato comum `ShipLua::ActorProvider`.
@@ -42,12 +45,12 @@ git diff --check
 - `mm.en_dg` usa path 0/índice de South Clock Town (`0x03E0`); fora de cenas
   com o objeto/path adequado, o provider retorna erro ou o jogo pode remover o
   ator conforme sua lógica vanilla.
-- A branch deve ser publicada como PR empilhada sobre
-  `agent/MM-LINK-003-runtime`.
+- A PR #12 foi publicada como draft, empilhada sobre
+  `agent/MM-LINK-003-runtime`, e aguarda os checks/review.
 - O release final ainda precisa reunir launcher + hosts OoT/MM sem incluir ROM,
   O2R, saves ou logs.
 
 ## Próxima ação recomendada
 
-Abrir o PR MM, concluir os dois PRs de contrato/provider OoT e executar o mesmo
-mod `actor-spawn` nos dois executáveis antes de empacotar `v0.2.0-alpha.1`.
+Concluir os PRs de contrato/providers e executar o mesmo mod `actor-spawn` nos
+dois executáveis antes de empacotar `v0.2.0-alpha.1`.

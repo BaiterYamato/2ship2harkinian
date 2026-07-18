@@ -40,3 +40,12 @@ the 2Ship2Harkinian host.
   - mm/tests/MmActorProviderTests.cpp
   - docs/SHIPLUA_MM_ACTOR_PROVIDER.md
   - coordination/handoffs/MM-MODSDK-001.md
+
+## [PLN-20260718-0001][UPDATE] 2026-07-18T21:08:00Z
+
+- status: review
+- note: Checkpoint `1d2eb2c` publicado na PR draft #12 sobre `agent/MM-LINK-003-runtime`; implementacao e validacao do provider MM concluidas. Restam checks/review, smoke cruzado OoT/MM e empacotamento sem assets proprietarios.
+- refs:
+  - https://github.com/BaiterYamato/2ship2harkinian/pull/12
+  - coordination/claims/MM-MODSDK-001.md
+  - coordination/handoffs/MM-MODSDK-001.md
