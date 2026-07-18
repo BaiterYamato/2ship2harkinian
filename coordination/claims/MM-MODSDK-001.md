@@ -1,0 +1,28 @@
+# MM-MODSDK-001
+
+- Status: claimed
+- Agent: Codex
+- Platform: Windows 11 / MSVC 2022 / CMake
+- Repository: BaiterYamato/2ship2harkinian
+- Branch: agent/MM-MODSDK-001-actor-adapter
+- Started: 2026-07-18T17:23:37-03:00
+- Depends on: MODSDK-005, MM-LINK-003
+- Files:
+  - extern/ship-lua
+  - CMakeLists.txt
+  - mm/CMakeLists.txt
+  - mm/2s2h/MmActorProvider.h
+  - mm/2s2h/MmActorProvider.cpp
+  - mm/2s2h/ShipLuaBootstrap.h
+  - mm/2s2h/ShipLuaBootstrap.cpp
+  - mm/tests/MmActorProviderTests.cpp
+  - docs/SHIPLUA_MM_ACTOR_PROVIDER.md
+  - docs/agents/Plans.md
+  - coordination/claims/MM-MODSDK-001.md
+  - coordination/handoffs/MM-MODSDK-001.md
+- Goal:
+  - Expose `ship.actor.spawn`, `ship.actor.destroy`, and `ship.actor.exists` in MM through the same safe `ShipLua::ActorProvider` contract used by OoT.
+  - Keep logical actor names allowlisted, block the player actor, and invalidate handles across scene/cycle lifecycle changes.
+- Guardrails:
+  - No ROM, O2R, save, log, numeric actor ID, engine pointer, or native struct is exposed to Lua or committed.
+  - Game mutations stay on the MM main thread.

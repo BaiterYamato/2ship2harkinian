@@ -1,10 +1,12 @@
 #include "ShipLuaBootstrap.h"
+#include "MmActorProvider.h"
 #include "MmHotkeyRegistry.h"
 #include "MmWorldAdapter.h"
 
 #include <filesystem>
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <cstdlib>
 #include <cstdint>
 #include <memory>
@@ -43,9 +45,13 @@ namespace ShipLuaHost {
 namespace {
 
 std::unique_ptr<ShipLua::ModHost> gModHost;
+std::shared_ptr<MmActorProvider> gActorProvider;
+std::shared_ptr<ShipLua::CapabilityRegistry> gCapabilityRegistry;
 std::shared_ptr<MmHotkeyRegistry> gHotkeys;
 std::shared_ptr<MmWorldAdapter> gWorldAdapter;
 HOOK_ID gSaveLoadHook = 0;
+HOOK_ID gActorDestroyHook = 0;
+HOOK_ID gPlayDestroyHook = 0;
 
 constexpr int kSwitchWorldExitCode = 73;
 
@@ -242,12 +248,75 @@ std::string GetHostVersion() {
            std::to_string(gBuildVersionPatch);
 }
 
-ShipLua::LuaApiHostContext CreateHostContext() {
+std::int16_t DegreesToBinang(double degrees) {
+    const double normalized = std::remainder(degrees, 360.0);
+    return static_cast<std::int16_t>(std::lround(normalized * (65536.0 / 360.0)));
+}
+
+std::shared_ptr<MmActorProvider> CreateActorProvider() {
+    MmActorProviderHooks hooks;
+    hooks.objectReady = [](std::int16_t objectId) {
+        if (gPlayState == nullptr) {
+            return false;
+        }
+        const s32 objectSlot = Object_GetSlot(&gPlayState->objectCtx, objectId);
+        return objectSlot > OBJECT_SLOT_NONE && Object_IsLoaded(&gPlayState->objectCtx, objectSlot);
+    };
+    hooks.spawn = [](const MmActorDefinition& definition, const ShipLua::ActorSpawnRequest& request) -> void* {
+        if (gPlayState == nullptr) {
+            return nullptr;
+        }
+        return Actor_Spawn(&gPlayState->actorCtx, gPlayState, definition.actorId, static_cast<float>(request.x),
+                           static_cast<float>(request.y), static_cast<float>(request.z),
+                           DegreesToBinang(request.rotationX), DegreesToBinang(request.rotationY),
+                           DegreesToBinang(request.rotationZ), definition.params);
+    };
+    hooks.kill = [](void* actor) {
+        if (actor != nullptr) {
+            Actor_Kill(static_cast<Actor*>(actor));
+        }
+    };
+    std::vector<MmActorDefinition> allowlist{
+        { "mm.en_dg", ACTOR_EN_DG, OBJECT_DOG, static_cast<std::int16_t>(0x03E0) },
+    };
+    return std::make_shared<MmActorProvider>(std::move(allowlist), std::move(hooks), CreateLogger(), ACTOR_PLAYER);
+}
+
+ShipLua::Result<void> RegisterHostCapability(const std::string& id, const std::string& description) {
+    if (gCapabilityRegistry == nullptr) {
+        return ShipLua::Result<void>::err(ShipLua::ErrorCode::InvalidState, "capability registry is unavailable");
+    }
+    const auto providerVersion = ShipLua::SemVersion::Parse(GetHostVersion());
+    const auto capabilityVersion = ShipLua::SemVersion::Parse(std::string(ShipLua::Generated::kApiVersion));
+    if (!providerVersion.isOk() || !capabilityVersion.isOk()) {
+        return ShipLua::Result<void>::err(ShipLua::ErrorCode::HostFailure, "invalid 2Ship or ShipLua version");
+    }
+    ShipLua::CapabilityProvider offer;
+    offer.name = "2ship-native";
+    offer.providerVersion = *providerVersion.value;
+    offer.capabilityVersion = *capabilityVersion.value;
+    offer.games = { "mm" };
+    offer.stability = ShipLua::CapabilityStability::Experimental;
+    offer.description = description;
+    return gCapabilityRegistry->Register(id, std::move(offer));
+}
+
+ShipLua::Result<ShipLua::LuaApiHostContext> CreateHostContext() {
     ShipLua::LuaApiHostContext context;
     context.gameId = "mm";
     context.hostVersion = GetHostVersion();
     context.capabilities = { "mm.player.jump", "mm.spawn_dog" };
     context.hotkeys = gHotkeys;
+    context.capabilityRegistry = gCapabilityRegistry;
+    context.actors = gActorProvider;
+    auto registered = RegisterHostCapability("mm.player.jump", "Apply a validated jump impulse to MM Link.");
+    if (!registered.isOk()) {
+        return ShipLua::Result<ShipLua::LuaApiHostContext>::err(registered.code, registered.message);
+    }
+    registered = RegisterHostCapability("mm.spawn_dog", "Spawn the legacy MM dog demo actor.");
+    if (!registered.isOk()) {
+        return ShipLua::Result<ShipLua::LuaApiHostContext>::err(registered.code, registered.message);
+    }
     if (const char* available = std::getenv("LINKSPAN_AVAILABLE_GAMES"); available != nullptr) {
         const std::string games(available);
         if (games.find("oot") != std::string::npos) {
@@ -260,8 +329,13 @@ ShipLua::LuaApiHostContext CreateHostContext() {
     if (BothGamesAvailable() && GetBridgeConfig().has_value()) {
         context.capabilities.push_back("world.travel");
         context.worldTravel = RequestWorldTravel;
+        registered =
+            RegisterHostCapability("world.travel", "Travel to a logical destination in the other Link-Span host.");
+        if (!registered.isOk()) {
+            return ShipLua::Result<ShipLua::LuaApiHostContext>::err(registered.code, registered.message);
+        }
     }
-    return context;
+    return ShipLua::Result<ShipLua::LuaApiHostContext>::ok(std::move(context));
 }
 
 // ship.mm.player.jump(): applies a host-controlled vertical impulse only when
@@ -424,16 +498,52 @@ void Initialize() {
     }
 
     gHotkeys = std::make_shared<MmHotkeyRegistry>();
+    gCapabilityRegistry = std::make_shared<ShipLua::CapabilityRegistry>();
+    gActorProvider = CreateActorProvider();
+    const auto actorCapabilities = gActorProvider->RegisterCapabilities(*gCapabilityRegistry);
+    if (!actorCapabilities.isOk()) {
+        SPDLOG_ERROR("ShipLua failed to register the MM actor provider: {}", actorCapabilities.message);
+        gActorProvider.reset();
+        gCapabilityRegistry.reset();
+        gHotkeys.reset();
+        return;
+    }
     auto catalog = ShipLua::PortableItemCatalog::CreateDefault();
     if (!catalog.isOk()) {
         SPDLOG_ERROR("ShipLua não conseguiu criar o catálogo portátil MM: {}", catalog.message);
+        gActorProvider.reset();
+        gCapabilityRegistry.reset();
         gHotkeys.reset();
         return;
     }
     gWorldAdapter = std::make_shared<MmWorldAdapter>(std::move(*catalog.value));
     gSaveLoadHook = GameInteractor::Instance->RegisterGameHook<GameInteractor::OnSaveLoad>(
         [](s16) { TryConsumeWorldHandoff(); });
-    ShipLua::LuaApiHostContext context = CreateHostContext();
+    gActorDestroyHook = GameInteractor::Instance->RegisterGameHook<GameInteractor::OnActorDestroy>([](Actor* actor) {
+        if (gActorProvider == nullptr) {
+            return;
+        }
+        const auto destroyed = gActorProvider->OnNativeActorDestroyed(actor);
+        if (!destroyed.isOk()) {
+            SPDLOG_ERROR("ShipLua failed to invalidate a destroyed MM actor: {}", destroyed.message);
+        }
+    });
+    gPlayDestroyHook = GameInteractor::Instance->RegisterGameHook<GameInteractor::OnPlayDestroy>([]() {
+        if (gActorProvider == nullptr) {
+            return;
+        }
+        const auto cleaned = gActorProvider->OnSceneChange();
+        if (!cleaned.isOk()) {
+            SPDLOG_ERROR("ShipLua failed to clean MM actors during scene teardown: {}", cleaned.message);
+        }
+    });
+    auto contextResult = CreateHostContext();
+    if (!contextResult.isOk()) {
+        SPDLOG_ERROR("ShipLua failed to create the MM host context: {}", contextResult.message);
+        Shutdown();
+        return;
+    }
+    ShipLua::LuaApiHostContext context = std::move(*contextResult.value);
     SPDLOG_INFO("ShipLua inicializando para {} {} (commit {})", context.gameId, context.hostVersion, gGitCommitHash);
     gModHost = std::make_unique<ShipLua::ModHost>(context, CreateLogger());
     LoadModsAndDispatchReady(context);
@@ -441,15 +551,31 @@ void Initialize() {
 }
 
 void Shutdown() {
-    if (gModHost == nullptr) {
+    if (gModHost == nullptr && gActorProvider == nullptr) {
         return;
     }
 
+    if (gActorProvider != nullptr) {
+        const auto cleaned = gActorProvider->Shutdown();
+        if (!cleaned.isOk()) {
+            SPDLOG_ERROR("ShipLua failed to shut down the MM actor provider: {}", cleaned.message);
+        }
+    }
     gModHost.reset();
     if (gSaveLoadHook != 0) {
         GameInteractor::Instance->UnregisterGameHook<GameInteractor::OnSaveLoad>(gSaveLoadHook);
         gSaveLoadHook = 0;
     }
+    if (gActorDestroyHook != 0) {
+        GameInteractor::Instance->UnregisterGameHook<GameInteractor::OnActorDestroy>(gActorDestroyHook);
+        gActorDestroyHook = 0;
+    }
+    if (gPlayDestroyHook != 0) {
+        GameInteractor::Instance->UnregisterGameHook<GameInteractor::OnPlayDestroy>(gPlayDestroyHook);
+        gPlayDestroyHook = 0;
+    }
+    gActorProvider.reset();
+    gCapabilityRegistry.reset();
     gWorldAdapter.reset();
     gHotkeys.reset();
     SPDLOG_INFO("ShipLua finalizado");
@@ -457,6 +583,10 @@ void Shutdown() {
 
 ShipLua::ModHost* GetModHost() {
     return gModHost.get();
+}
+
+MmActorProvider* ActorProvider() {
+    return gActorProvider.get();
 }
 
 MmHotkeyRegistry* Hotkeys() {
