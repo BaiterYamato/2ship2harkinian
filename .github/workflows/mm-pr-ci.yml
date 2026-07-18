@@ -1,0 +1,217 @@
+# ============================================================================
+# RASCUNHO (tarefa MM-CI-001) — CI de validação para os PRs da pilha MM/ShipLua.
+#
+# Diagnóstico que motivou este rascunho:
+# - Os workflows herdados do upstream (main.yml, clang-format.yml,
+#   pr-artifacts.yml) JÁ existem em lua/main e em develop com gatilho
+#   pull_request, mas a API do GitHub reporta 0 workflow runs no fork
+#   BaiterYamato/2ship2harkinian (GET /actions/runs => total_count: 0) e os
+#   PRs #1-#9 não têm nenhum check. Causa: GitHub Actions desabilitado no
+#   fork (forks vêm com Actions desligado até o dono habilitar na aba
+#   Actions). Nenhum arquivo de workflow resolve isso — é configuração do
+#   repositório. Depois de habilitar, os workflows do upstream já cobrem
+#   build Linux/Windows/macOS + clang-format em qualquer PR.
+#
+# O que este rascunho ADICIONA em relação ao main.yml do upstream:
+# - feedback de PR mais rápido: compila Linux + Windows e checa clang-format,
+#   sem gerar 2ship.o2r, sem cpack e sem upload de artefatos;
+# - job extra para os testes do núcleo ShipLua (extern/ship-lua, CMake+ctest),
+#   executado só quando o submódulo existe na árvore do PR (pilha MM-001+);
+# - gatilho pull_request sem filtro de branch, cobrindo a pilha empilhada
+#   cujas bases são branches agent/**, mais workflow_dispatch para uso manual.
+#
+# Nome do workflow e dos jobs mantidos próximos do upstream de propósito:
+# se este arquivo substituir/complementar o main.yml no futuro, os checks
+# aparecem com nomes familiares (build-linux, build-windows, clang-format).
+# ============================================================================
+
+name: mm-pr-ci
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+
+  # --- Formatação (idêntico ao clang-format.yml do upstream) ---------------
+  clang-format:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 2
+      - name: Install clang-format
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang-format-14
+      - name: Run clang-format
+        run: |
+          ./run-clang-format.sh
+          git diff --exit-code
+
+  # --- Build Linux (baseado no job build-linux do main.yml, sem OTR/pacote) -
+  build-linux:
+    runs-on: ubuntu-22.04
+    env:
+      CC: gcc-12
+      CXX: g++-12
+    steps:
+      - name: Git Checkout
+        uses: actions/checkout@v6
+        with:
+          submodules: true
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y $(cat .github/workflows/apt-deps.txt)
+      - name: Configure ccache
+        uses: hendrikmuhs/ccache-action@v1.2.22
+        with:
+          save: ${{ github.ref_name == github.event.repository.default_branch }}
+          key: ${{ runner.os }}-pr-ccache-${{ github.ref }}-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-pr-ccache-${{ github.ref }}
+            ${{ runner.os }}-pr-ccache
+      - name: Restore cached deps folder
+        id: restore-cache-deps
+        uses: actions/cache/restore@v5
+        with:
+          key: ${{ runner.os }}-deps-${{ github.ref }}-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-deps-${{ github.ref }}-
+            ${{ runner.os }}-deps-
+          path: deps
+      - name: Create deps folder
+        run: mkdir -p deps
+      - name: Install latest SDL
+        run: |
+          export PATH="/usr/lib/ccache:/usr/local/opt/ccache/libexec:$PATH"
+          if [ ! -d "deps/SDL2-2.30.3" ]; then
+            wget https://github.com/libsdl-org/SDL/releases/download/release-2.30.3/SDL2-2.30.3.tar.gz
+            tar -xzf SDL2-2.30.3.tar.gz -C deps
+          fi
+          cd deps/SDL2-2.30.3
+          ./configure --enable-hidapi-libusb
+          make -j 10
+          sudo make install
+          sudo cp -av /usr/local/lib/libSDL* /lib/x86_64-linux-gnu/
+      - name: Install latest tinyxml2
+        run: |
+          sudo apt-get remove -y libtinyxml2-dev
+          export PATH="/usr/lib/ccache:/usr/local/opt/ccache/libexec:$PATH"
+          if [ ! -d "deps/tinyxml2-10.0.0" ]; then
+            wget https://github.com/leethomason/tinyxml2/archive/refs/tags/10.0.0.tar.gz
+            tar -xzf 10.0.0.tar.gz -C deps
+          fi
+          cd deps/tinyxml2-10.0.0
+          mkdir -p build
+          cd build
+          cmake ..
+          make
+          sudo make install
+      - name: Install libzip without crypto
+        run: |
+          export PATH="/usr/lib/ccache:/usr/local/opt/ccache/libexec:$PATH"
+          if [ ! -d "deps/libzip-1.10.1" ]; then
+            wget https://github.com/nih-at/libzip/releases/download/v1.10.1/libzip-1.10.1.tar.gz
+            tar -xzf libzip-1.10.1.tar.gz -C deps
+          fi
+          cd deps/libzip-1.10.1
+          mkdir -p build
+          cd build
+          cmake .. -DENABLE_COMMONCRYPTO=OFF -DENABLE_GNUTLS=OFF -DENABLE_MBEDTLS=OFF -DENABLE_OPENSSL=OFF
+          make
+          sudo make install
+          sudo cp -av /usr/local/lib/libzip* /lib/x86_64-linux-gnu/
+      - name: Build 2ship (somente compilação)
+        run: |
+          export PATH="/usr/lib/ccache:/usr/local/opt/ccache/libexec:$PATH"
+          cmake --no-warn-unused-cli -H. -Bbuild-cmake -GNinja -DCMAKE_BUILD_TYPE:STRING=Release -DBUILD_REMOTE_CONTROL=1
+          cmake --build build-cmake --config Release --target 2ship -j3
+      - name: Save cache deps folder
+        if: ${{ github.ref_name == github.event.repository.default_branch }}
+        uses: actions/cache/save@v5
+        with:
+          key: ${{ steps.restore-cache-deps.outputs.cache-primary-key }}
+          path: deps
+
+  # --- Build Windows MSVC (baseado no job build-windows do main.yml) --------
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - name: Install dependencies
+        run: |
+          choco install ninja -y
+          Remove-Item -Path "C:\ProgramData\Chocolatey\bin\ccache.exe" -Force -ErrorAction SilentlyContinue
+      - name: Git Checkout
+        uses: actions/checkout@v6
+        with:
+          submodules: true
+      - name: Configure sccache
+        uses: hendrikmuhs/ccache-action@v1.2.22
+        with:
+          variant: sccache
+          max-size: "2G"
+          evict-old-files: job
+          save: ${{ github.ref_name == github.event.repository.default_branch }}
+          key: ${{ runner.os }}-pr-ccache-${{ github.ref }}-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-pr-ccache-${{ github.ref }}
+            ${{ runner.os }}-pr-ccache
+      - name: Restore cached VCPKG folder
+        id: restore-cache-vcpkg
+        uses: actions/cache/restore@v4
+        with:
+          key: ${{ runner.os }}-vcpkg-${{ github.ref }}-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-vcpkg-${{ github.ref }}-
+            ${{ runner.os }}-vcpkg-
+          path: vcpkg
+      - name: Configure Developer Command Prompt
+        uses: ilammy/msvc-dev-cmd@v1
+      - name: Build 2ship (somente compilação)
+        env:
+          VCPKG_ROOT: ${{github.workspace}}/vcpkg
+        run: |
+          set $env:PATH="$env:USERPROFILE/.cargo/bin;$env:PATH"
+          cmake -S . -B build-windows -G Ninja -DCMAKE_MAKE_PROGRAM=ninja -DCMAKE_BUILD_TYPE:STRING=Release -DCMAKE_C_COMPILER_LAUNCHER=sccache -DCMAKE_CXX_COMPILER_LAUNCHER=sccache
+          cmake --build build-windows --config Release --target 2ship --parallel 10
+      - name: Save cache VCPKG folder
+        if: ${{ github.ref_name == github.event.repository.default_branch }}
+        uses: actions/cache/save@v5
+        with:
+          key: ${{ steps.restore-cache-vcpkg.outputs.cache-primary-key }}
+          path: vcpkg
+
+  # --- Testes do núcleo ShipLua (só na pilha MM, onde extern/ship-lua existe)
+  # Convenção do núcleo: CMake standalone + ctest (ver tests/CMakeLists.txt).
+  # Na lua/main pura o submódulo não existe e o job termina verde sem rodar.
+  shiplua-core-tests:
+    runs-on: windows-latest
+    steps:
+      - name: Git Checkout
+        uses: actions/checkout@v6
+        with:
+          submodules: true
+      - name: Detect ShipLua submodule
+        id: shiplua
+        shell: bash
+        run: |
+          if [ -f extern/ship-lua/CMakeLists.txt ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Configure ShipLua standalone (MSVC)
+        if: steps.shiplua.outputs.present == 'true'
+        run: cmake -S extern/ship-lua -B build-shiplua -DCMAKE_BUILD_TYPE=Release
+      - name: Build ShipLua
+        if: steps.shiplua.outputs.present == 'true'
+        run: cmake --build build-shiplua --config Release --parallel 4
+      - name: Run ctest
+        if: steps.shiplua.outputs.present == 'true'
+        run: ctest --test-dir build-shiplua -C Release --output-on-failure
