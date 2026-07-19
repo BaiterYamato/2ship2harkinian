@@ -74,6 +74,7 @@ class MmActorProvider final : public ShipLua::ActorProvider {
     bool SameHandle(const ActorRecord& record, const ShipLua::Handle& handle) const;
 
     std::map<std::string, MmActorDefinition> mAllowlist;
+    std::int16_t mForbiddenActorId = 0;
     MmActorProviderHooks mHooks;
     ShipLua::Logger mLogger;
     ShipLua::HandleRegistry mHandles;
