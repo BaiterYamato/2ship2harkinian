@@ -45,8 +45,17 @@ extern "C" {
 
 // Privileged adapter code — allowed to touch MM internals to implement the
 // host-specific ship.mm.* bindings. (The shared core never includes game headers.)
+#include "align_asset_macro.h"
 #include "variables.h"
 #include "z64.h"
+
+extern "C" {
+// Tabelas de display list da mão esquerda do player (z_player_lib.c) e o
+// helper de existência de recurso declarado em BenPort.h (guard colidente).
+extern Gfx* gPlayerLeftHandOneHandSwordDLs[];
+extern Gfx* D_801C018C[];
+uint8_t ResourceMgr_FileExists(const char* resName);
+}
 
 namespace ShipLuaHost {
 namespace {
@@ -573,7 +582,7 @@ ShipLua::Result<ShipLua::LuaApiHostContext> CreateHostContext() {
     ShipLua::LuaApiHostContext context;
     context.gameId = "mm";
     context.hostVersion = GetHostVersion();
-    context.capabilities = { "mm.player.jump", "mm.spawn_dog" };
+    context.capabilities = { "mm.player.jump", "mm.spawn_dog", "mm.player.sword_skin" };
     context.hotkeys = gHotkeys;
     context.capabilityRegistry = gCapabilityRegistry;
     context.actors = gActorProvider;
@@ -582,6 +591,11 @@ ShipLua::Result<ShipLua::LuaApiHostContext> CreateHostContext() {
         return ShipLua::Result<ShipLua::LuaApiHostContext>::err(registered.code, registered.message);
     }
     registered = RegisterHostCapability("mm.spawn_dog", "Spawn the legacy MM dog demo actor.");
+    if (!registered.isOk()) {
+        return ShipLua::Result<ShipLua::LuaApiHostContext>::err(registered.code, registered.message);
+    }
+    registered = RegisterHostCapability("mm.player.sword_skin",
+                                        "Swap the held Kokiri sword display list between MM and OoT visuals.");
     if (!registered.isOk()) {
         return ShipLua::Result<ShipLua::LuaApiHostContext>::err(registered.code, registered.message);
     }
@@ -624,6 +638,50 @@ int LuaPlayerJump(lua_State* L) {
     }
 
     player->actor.velocity.y = 6.34375f;
+    lua_pushboolean(L, 1);
+    return 1;
+}
+
+// ship.mm.player.set_sword_skin("oot" | "mm"): troca a display list da espada
+// Kokiri empunhada pelo Link humano. A variante "oot" aponta para o punho com
+// a Kokiri Sword do child Link do OoT, lido do oot.o2r vizinho — os assets de
+// object_link_child não colidem entre os jogos, então as texturas resolvem
+// pelo alias de hash. Nenhum ponteiro nativo cruza a fronteira Lua.
+static const ALIGN_ASSET(2) char kOotKokiriSwordHandDL[] =
+    "__OTR__oot/objects/object_link_child/gLinkChildLeftFistAndKokiriSwordNearDL";
+
+bool gSwordSkinIsOot = false;
+Gfx* gVanillaOneHandSwordDLs[2] = { nullptr, nullptr };
+Gfx* gVanillaKokiriEquipDLs[2] = { nullptr, nullptr };
+
+// Índices da forma humana na tabela por-forma (as duas últimas entradas).
+constexpr std::size_t kHumanLeftHandIndex = 2 * PLAYER_FORM_HUMAN;
+
+int LuaSetSwordSkin(lua_State* L) {
+    const char* requested = luaL_optstring(L, 1, "mm");
+    const bool wantsOot = std::strcmp(requested, "oot") == 0;
+
+    if (gVanillaOneHandSwordDLs[0] == nullptr) {
+        gVanillaOneHandSwordDLs[0] = gPlayerLeftHandOneHandSwordDLs[kHumanLeftHandIndex];
+        gVanillaOneHandSwordDLs[1] = gPlayerLeftHandOneHandSwordDLs[kHumanLeftHandIndex + 1];
+        gVanillaKokiriEquipDLs[0] = D_801C018C[0];
+        gVanillaKokiriEquipDLs[1] = D_801C018C[1];
+    }
+
+    if (wantsOot && !ResourceMgr_FileExists(kOotKokiriSwordHandDL)) {
+        SPDLOG_WARN("ShipLua set_sword_skin: assets do OoT indisponíveis — o oot.o2r não está montado");
+        lua_pushboolean(L, 0);
+        return 1;
+    }
+
+    Gfx* const target = wantsOot ? (Gfx*)kOotKokiriSwordHandDL : gVanillaOneHandSwordDLs[0];
+    gPlayerLeftHandOneHandSwordDLs[kHumanLeftHandIndex] = target;
+    gPlayerLeftHandOneHandSwordDLs[kHumanLeftHandIndex + 1] = wantsOot ? target : gVanillaOneHandSwordDLs[1];
+    D_801C018C[0] = wantsOot ? target : gVanillaKokiriEquipDLs[0];
+    D_801C018C[1] = wantsOot ? target : gVanillaKokiriEquipDLs[1];
+    gSwordSkinIsOot = wantsOot;
+
+    SPDLOG_INFO("ShipLua set_sword_skin: espada Kokiri agora usa o visual {}", wantsOot ? "do OoT" : "do MM");
     lua_pushboolean(L, 1);
     return 1;
 }
@@ -698,6 +756,8 @@ void InstallMmApi(lua_State* L) {
     }
     lua_pushcfunction(L, LuaPlayerJump);
     lua_setfield(L, -2, "jump");
+    lua_pushcfunction(L, LuaSetSwordSkin);
+    lua_setfield(L, -2, "set_sword_skin");
     lua_setfield(L, mmTable, "player");
 
     lua_setfield(L, shipTable, "mm");
