@@ -57,6 +57,8 @@ std::shared_ptr<ShipLua::CapabilityRegistry> gCapabilityRegistry;
 std::shared_ptr<MmHotkeyRegistry> gHotkeys;
 std::shared_ptr<MmWorldAdapter> gWorldAdapter;
 HOOK_ID gSaveLoadHook = 0;
+HOOK_ID gImportTickHook = 0;
+std::optional<ShipLua::WorldHandoff> gPendingHandoff;
 HOOK_ID gActorDestroyHook = 0;
 HOOK_ID gPlayDestroyHook = 0;
 
@@ -191,20 +193,56 @@ void TryConsumeWorldHandoff() {
         SPDLOG_ERROR("Link-Span rejeitou um handoff destinado a outra sessão ou jogo");
         return;
     }
-    const auto prepared = gWorldAdapter->PrepareImport(handoff.value->player, handoff.value->destination);
+    // O handoff NÃO é aplicado aqui: OnSaveLoad também dispara na abertura do
+    // jogo (z_opening.c), quando não há arquivo carregado — escrever save e
+    // forçar entrance nesse ponto corrompe o estado e derruba o jogo. Guarda
+    // o handoff (e o arquivo em disco) até um frame realmente jogável.
+    gPendingHandoff = *handoff.value;
+    SPDLOG_INFO("Link-Span recebeu um handoff para MM ({}) — aguardando um save carregado",
+                handoff.value->destination.id);
+}
+
+// Só importa quando existe um jogo de verdade rodando: PlayState ativo, save
+// com vida (arquivo carregado, não a intro) e nenhuma transição em curso.
+bool WorldImportIsSafe() {
+    if (gPlayState == nullptr) {
+        return false;
+    }
+    if (gSaveContext.save.saveInfo.playerData.healthCapacity <= 0) {
+        return false;
+    }
+    return gPlayState->transitionTrigger == TRANS_TRIGGER_OFF;
+}
+
+void TickWorldImport() {
+    if (!gPendingHandoff.has_value() || gWorldAdapter == nullptr || !WorldImportIsSafe()) {
+        return;
+    }
+    const auto config = GetBridgeConfig();
+    if (!config.has_value()) {
+        gPendingHandoff.reset();
+        return;
+    }
+
+    const ShipLua::WorldHandoff handoff = *gPendingHandoff;
+    const auto prepared = gWorldAdapter->PrepareImport(handoff.player, handoff.destination);
     if (!prepared.isOk()) {
+        gPendingHandoff.reset();
         SPDLOG_ERROR("Link-Span não preparou a importação MM: {}", prepared.message);
         return;
     }
     const auto committed = gWorldAdapter->CommitImport();
     if (!committed.isOk()) {
         gWorldAdapter->AbortImport();
+        gPendingHandoff.reset();
         SPDLOG_ERROR("Link-Span não confirmou a importação MM: {}", committed.message);
         return;
     }
+    // Só agora o handoff pode sumir do disco: a viagem foi mesmo aplicada.
+    gPendingHandoff.reset();
     std::error_code error;
     std::filesystem::remove(config->handoffPath, error);
-    SPDLOG_INFO("Link-Span importou o estado compartilhado em MM ({})", handoff.value->destination.id);
+    SPDLOG_INFO("Link-Span importou o estado compartilhado em MM ({})", handoff.destination.id);
 }
 
 #ifdef _WIN32
@@ -749,6 +787,8 @@ void Initialize() {
     gWorldAdapter = std::make_shared<MmWorldAdapter>(std::move(*catalog.value));
     gSaveLoadHook = GameInteractor::Instance->RegisterGameHook<GameInteractor::OnSaveLoad>(
         [](s16) { TryConsumeWorldHandoff(); });
+    gImportTickHook =
+        GameInteractor::Instance->RegisterGameHook<GameInteractor::OnGameStateUpdate>([]() { TickWorldImport(); });
     gActorDestroyHook = GameInteractor::Instance->RegisterGameHook<GameInteractor::OnActorDestroy>([](Actor* actor) {
         ShipLuaOotPuppet_HandleActorDestroy(actor);
         if (gActorProvider == nullptr) {
@@ -797,6 +837,9 @@ void Shutdown() {
     gModHost.reset();
     if (gSaveLoadHook != 0) {
         GameInteractor::Instance->UnregisterGameHook<GameInteractor::OnSaveLoad>(gSaveLoadHook);
+        GameInteractor::Instance->UnregisterGameHook<GameInteractor::OnGameStateUpdate>(gImportTickHook);
+        gImportTickHook = 0;
+        gPendingHandoff.reset();
         gSaveLoadHook = 0;
     }
     if (gActorDestroyHook != 0) {
