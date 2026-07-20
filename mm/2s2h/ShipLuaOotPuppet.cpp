@@ -14,6 +14,8 @@ extern "C" {
 #include "z64.h"
 
 extern PlayState* gPlayState;
+// Declarado em BenPort.h, cujo include-guard colide com outro header.
+uint8_t ResourceMgr_FileExists(const char* resName);
 }
 
 namespace ShipLuaHost {
@@ -72,6 +74,14 @@ bool ShipLuaOotPuppet_AttachRauru(void* actorPtr, void* playPtr) {
     Actor* actor = static_cast<Actor*>(actorPtr);
     PlayState* play = static_cast<PlayState*>(playPtr);
     if (actor == nullptr || play == nullptr) {
+        return false;
+    }
+
+    // SkelAnime_InitFlex desreferencia o recurso: sem o oot.o2r vizinho
+    // montado, o ponteiro não resolve e o engine quebra. Confira ANTES.
+    if (!ResourceMgr_FileExists(sRauruSkel) || !ResourceMgr_FileExists(sRauruWaitAnim)) {
+        SPDLOG_WARN("ShipLua: assets do Rauru indisponíveis — o oot.o2r do OoT não está montado "
+                    "(coloque as duas instalações lado a lado ou use SHIPLUA_OOT_ROOT)");
         return false;
     }
 

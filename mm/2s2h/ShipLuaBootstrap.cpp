@@ -14,6 +14,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <vector>
 
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
@@ -398,20 +399,51 @@ void MountCrossWorldArchives() {
         return;
     }
 
-    std::filesystem::path siblingRoot;
+    // Sonda os layouts conhecidos: override explícito, pacote do launcher
+    // (raiz/hosts/oot), host irmão ao lado do exe e, por último, o CWD.
+    std::error_code ec;
+    std::vector<std::filesystem::path> candidates;
+    // O override é exclusivo: quem aponta SHIPLUA_OOT_ROOT espera aquele
+    // caminho, não uma busca automática em volta dele.
     if (const char* configured = std::getenv("SHIPLUA_OOT_ROOT"); configured != nullptr && *configured != '\0') {
-        siblingRoot = configured;
+        candidates.emplace_back(configured);
     } else {
-        std::error_code ec;
-        siblingRoot = std::filesystem::absolute(Ship::Context::GetAppDirectoryPath(""), ec);
-        siblingRoot = siblingRoot.parent_path() / "OOT";
+    // O layout do launcher mantém os dois archives na raiz do pacote (é onde
+    // o próprio mm.o2r é encontrado), então a pasta do app vem primeiro.
+    const std::filesystem::path cwd = std::filesystem::absolute(Ship::Context::GetAppDirectoryPath(""), ec);
+    candidates.push_back(cwd);
+    candidates.push_back(cwd / "hosts" / "oot");
+    candidates.push_back(cwd.parent_path());
+    candidates.push_back(cwd.parent_path() / "oot");
+    candidates.push_back(cwd.parent_path() / "OOT");
+    candidates.push_back(cwd.parent_path().parent_path() / "hosts" / "oot");
+#ifdef _WIN32
+    const std::filesystem::path runtimeRoot = RuntimeRoot();
+    candidates.push_back(runtimeRoot);
+    candidates.push_back(runtimeRoot / "hosts" / "oot");
+    candidates.push_back(runtimeRoot.parent_path());
+    candidates.push_back(runtimeRoot.parent_path() / "oot");
+    candidates.push_back(runtimeRoot.parent_path().parent_path());
+    candidates.push_back(runtimeRoot.parent_path().parent_path() / "hosts" / "oot");
+#endif
     }
 
-    const std::filesystem::path ootArchive = siblingRoot / "oot.o2r";
-    std::error_code ec;
-    if (!std::filesystem::is_regular_file(ootArchive, ec)) {
-        SPDLOG_INFO("ShipLua: oot.o2r n\xC3\xA3o encontrado em '{}' — assets do OOT indispon\xC3\xADveis no MM",
-                    siblingRoot.string());
+    std::filesystem::path ootArchive;
+    for (const std::filesystem::path& candidate : candidates) {
+        const std::filesystem::path probe = candidate / "oot.o2r";
+        if (std::filesystem::is_regular_file(probe, ec)) {
+            ootArchive = probe;
+            break;
+        }
+    }
+    if (ootArchive.empty()) {
+        std::string tried;
+        for (const auto& candidate : candidates) {
+            tried += (tried.empty() ? "" : "; ") + candidate.string();
+        }
+        SPDLOG_INFO("ShipLua: oot.o2r n\xC3\xA3o encontrado (procurado em: {}) — assets do OOT indispon\xC3\xADveis "
+                    "no MM",
+                    tried);
         return;
     }
 
