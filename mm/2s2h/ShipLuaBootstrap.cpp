@@ -582,7 +582,7 @@ ShipLua::Result<ShipLua::LuaApiHostContext> CreateHostContext() {
     ShipLua::LuaApiHostContext context;
     context.gameId = "mm";
     context.hostVersion = GetHostVersion();
-    context.capabilities = { "mm.player.jump", "mm.spawn_dog", "mm.player.sword_skin" };
+    context.capabilities = { "mm.player.jump", "mm.spawn_dog", "mm.player.sword_skin", "player.speed" };
     context.hotkeys = gHotkeys;
     context.capabilityRegistry = gCapabilityRegistry;
     context.actors = gActorProvider;
@@ -596,6 +596,10 @@ ShipLua::Result<ShipLua::LuaApiHostContext> CreateHostContext() {
     }
     registered = RegisterHostCapability("mm.player.sword_skin",
                                         "Swap the held Kokiri sword display list between MM and OoT visuals.");
+    if (!registered.isOk()) {
+        return ShipLua::Result<ShipLua::LuaApiHostContext>::err(registered.code, registered.message);
+    }
+    registered = RegisterHostCapability("player.speed", "Scale the player's movement speed by a validated factor.");
     if (!registered.isOk()) {
         return ShipLua::Result<ShipLua::LuaApiHostContext>::err(registered.code, registered.message);
     }
@@ -638,6 +642,45 @@ int LuaPlayerJump(lua_State* L) {
     }
 
     player->actor.velocity.y = 6.34375f;
+    lua_pushboolean(L, 1);
+    return 1;
+}
+
+// ship.player.set_speed_multiplier(factor): primitiva comum aos dois jogos.
+// Dirige o LinkSpeedModifier que o host já implementa, em modo "sempre ativo"
+// (Mode 1), sem exigir que o jogador segure o botão. 1.0 restaura o estado.
+bool gSpeedForced = false;
+float gSpeedPreviousValue = 1.0f;
+int gSpeedPreviousMode = 0;
+
+int LuaSetSpeedMultiplier(lua_State* L) {
+    const double requested = luaL_checknumber(L, 1);
+    if (!std::isfinite(requested) || requested < 0.1 || requested > 5.0) {
+        SPDLOG_WARN("ShipLua set_speed_multiplier: fator fora da faixa 0.1–5.0");
+        lua_pushboolean(L, 0);
+        return 1;
+    }
+
+    const bool restore = std::fabs(requested - 1.0) < 0.0001;
+    if (!gSpeedForced && !restore) {
+        gSpeedPreviousValue = CVarGetFloat("gCheats.SpeedModifier.Value", 1.0f);
+        gSpeedPreviousMode = CVarGetInteger("gCheats.SpeedModifier.Mode", 0);
+        gSpeedForced = true;
+    }
+
+    if (restore) {
+        if (gSpeedForced) {
+            CVarSetFloat("gCheats.SpeedModifier.Value", gSpeedPreviousValue);
+            CVarSetInteger("gCheats.SpeedModifier.Mode", gSpeedPreviousMode);
+            gSpeedForced = false;
+        }
+        SPDLOG_INFO("ShipLua set_speed_multiplier: velocidade restaurada");
+    } else {
+        CVarSetFloat("gCheats.SpeedModifier.Value", static_cast<float>(requested));
+        CVarSetInteger("gCheats.SpeedModifier.Mode", 1); // 1 = sempre ativo
+        SPDLOG_INFO("ShipLua set_speed_multiplier: velocidade x{:.2f}", requested);
+    }
+
     lua_pushboolean(L, 1);
     return 1;
 }
@@ -761,6 +804,16 @@ void InstallMmApi(lua_State* L) {
     lua_setfield(L, mmTable, "player");
 
     lua_setfield(L, shipTable, "mm");
+
+    // Primitiva comum aos dois jogos: ship.player.set_speed_multiplier.
+    lua_getfield(L, shipTable, "player");
+    if (!lua_istable(L, -1)) {
+        lua_pop(L, 1);
+        lua_newtable(L);
+    }
+    lua_pushcfunction(L, LuaSetSpeedMultiplier);
+    lua_setfield(L, -2, "set_speed_multiplier");
+    lua_setfield(L, shipTable, "player");
     lua_pop(L, 1);
 }
 
