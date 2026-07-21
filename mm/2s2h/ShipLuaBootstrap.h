@@ -8,12 +8,14 @@ class ModHost;
 
 namespace ShipLuaHost {
 
+class MmActorProvider;
 class MmHotkeyRegistry;
 class MmWorldAdapter;
 
 void Initialize();
 void Shutdown();
 ShipLua::ModHost* GetModHost();
+MmActorProvider* ActorProvider();
 
 // Owned hotkey registry (created in Initialize, destroyed in Shutdown).
 // May be nullptr before Initialize or after Shutdown.

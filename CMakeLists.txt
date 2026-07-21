@@ -163,10 +163,27 @@ add_compile_definitions(CONTROLLERBUTTONS_T=uint32_t)
 ################################################################################
 # Sub-projects
 ################################################################################
+enable_testing()
 add_subdirectory(libultraship ${CMAKE_BINARY_DIR}/libultraship)
 target_compile_definitions(libultraship PUBLIC INCLUDE_MPQ_SUPPORT)
+if(MSVC)
+    # 2Ship links ShipLua statically, so its tools and tests must use the same
+    # CRT as the embedded library when configured as a subproject.
+    if(DEFINED CMAKE_MSVC_RUNTIME_LIBRARY)
+        set(SHIPLUA_PREVIOUS_MSVC_RUNTIME_LIBRARY "${CMAKE_MSVC_RUNTIME_LIBRARY}")
+        set(SHIPLUA_RESTORE_MSVC_RUNTIME_LIBRARY TRUE)
+    endif()
+    set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+endif()
 add_subdirectory(extern/ship-lua ${CMAKE_BINARY_DIR}/ship-lua)
 if(MSVC)
+    if(SHIPLUA_RESTORE_MSVC_RUNTIME_LIBRARY)
+        set(CMAKE_MSVC_RUNTIME_LIBRARY "${SHIPLUA_PREVIOUS_MSVC_RUNTIME_LIBRARY}")
+    else()
+        unset(CMAKE_MSVC_RUNTIME_LIBRARY)
+    endif()
+    unset(SHIPLUA_PREVIOUS_MSVC_RUNTIME_LIBRARY)
+    unset(SHIPLUA_RESTORE_MSVC_RUNTIME_LIBRARY)
     set_target_properties(shiplua lua_static miniz PROPERTIES
         MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>"
     )

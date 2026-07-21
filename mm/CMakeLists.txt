@@ -187,6 +187,20 @@ set(ALL_FILES
 ################################################################################
 add_executable(${PROJECT_NAME} ${ALL_FILES})
 
+enable_testing()
+add_executable(mm_actor_provider_tests
+    tests/MmActorProviderTests.cpp
+    2s2h/MmActorProvider.cpp
+)
+target_include_directories(mm_actor_provider_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(mm_actor_provider_tests PRIVATE shiplua)
+if(MSVC)
+    set_property(TARGET mm_actor_provider_tests PROPERTY
+        MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+    target_compile_options(mm_actor_provider_tests PRIVATE /EHsc)
+endif()
+add_test(NAME mm_actor_provider_tests COMMAND mm_actor_provider_tests)
+
 if (CMAKE_SYSTEM_NAME STREQUAL "Windows")
 use_props(${PROJECT_NAME} "${CMAKE_CONFIGURATION_TYPES}" "${DEFAULT_CXX_PROPS}")
 endif()
